@@ -5,6 +5,7 @@
 slprj/
 sccprj/
 codegen/
+*.fig
 
 # IDE specific
 .vscode/
@@ -38,3 +39,13 @@ Thumbs.db
 
 # Other repo
 externalTools/*
+
+# AFNI
+*.1D
+*.BRIK
+*.HEAD
+*.REML_cmd
+
+
+# Others
+*.flag

@@ -1,0 +1,6 @@
+*+ WARNING: -input dataset seems to have TR = 0.0
+*+ WARNING: '-stim_times 1' didn't read any good times from file '/scratch/users/Proulx-S/forZhangxuan/getRespAndAct/task-visStim_cond-cond1_model-TENTzero_startTime.1D'
+*+ WARNING: run time seen as 0.0, verify TR and NT
+** ERROR: 'TENTzero(0,-194,-96)' is illegal
+** ERROR:  Correct format: 'TENTzero(bot,top,n)' with bot < top and n > 2.
+** FATAL ERROR: '-stim_times 1': don't understand basis function model 'TENTzero(0,-194,-96)' [nopt=18]

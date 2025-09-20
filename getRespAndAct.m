@@ -1,4 +1,4 @@
-function [fRespCat,fRespRun,fActCat,fActRun] = getRespAndAct2(fVolTs,dsgn,fMask,param,force,verbose,passDown)
+function [fRespCat,fRespRun,fActCat,fActRun] = getRespAndAct(fVolTs,dsgn,fMask,param,force,verbose,passDown)
 if ~exist('force','var');     force   = []; end
 if ~exist('verbose','var'); verbose   = []; end
 if ~exist('dsgn','var');       dsgn   = []; end
@@ -6,41 +6,47 @@ if ~exist('fMask','var');     fMask   = []; end
 if ~exist('passDown','var'); passDown = {}; end
 if isempty(force);     force = 0; end
 if isempty(verbose); verbose = 0; end
-% if isempty(dsgn)
-%     if isfield(fVolTs,'dsgn') && isequal(dsgn)
-%         dsgn = dsgn;
-%     else
-%         error('badly specified dsgn')
-%     end
-% end
-% if ~isfield(param,'skipMov'); param.skipMov = []; end
-% if ~isfield(param,'skipCat'); param.skipCat = []; end
-% if ~isfield(param,'skipRun'); param.skipRun = []; end
 if ~isfield(param,'dryRun'); param.dryRun = []; end
 if ~isfield(param,'PCflag'); param.PCflag = []; end
-        % if isempty(param.skipMov); param.skipMov = 0; end
-% if isempty(param.skipCat); param.skipCat = 0; end
-% if isempty(param.skipRun); param.skipRun = 0; end
 if isempty(param.dryRun); param.dryRun = 0; end
 if isempty(param.PCflag); param.PCflag = 0; end
 
-%% Assert data files
-if ~iscell(fVolTs) && ~ischar(fVolTs{1})
-    dbstack; error('old version, reconciliate')
+%% Assert fVolTs
+if ischar(fVolTs); fVolTs = cellstr(fVolTs); end
+for i = 1:size(fVolTs,1)
+    if ~exist(fVolTs{i},'file'); dbstack; error(['file ' fVolTs{i} ' does not exist']); end
+    volTs(i,1) = MRIread(char(fVolTs),1); % just to make sure it exists
 end
+
 
 %% Assert dsgn
 if ~isa(dsgn,'runDsgn')
-    dbstack; error('old version, reconciliate')
+    dbstack; error('need to define dsgn as a runDsgn object');
+end
+if isempty(dsgn.condLabel)
+    for c = 1:length(unique(dsgn.cond))
+        dsgn.condLabel{1,c} = ['cond' num2str(c)];
+    end
 end
 
+
 %% Assert mask files
-if ~iscell(fMask) && ~ischar(fMask)
-    dbstack; error('old version, reconciliate')
+if isempty(fMask)
+    fMask = repmat({''},size(fVolTs));
+else
+    if ~iscell(fMask) && ~ischar(fMask)
+        dbstack; error('old version, reconciliate')
+    end
 end
 
 %% Assert param
 param.dsgn = dsgn; clear dsgn
+if ~isfield(param,'tr')           || isempty(param.tr);           param.tr           = volTs.tr/1000; end
+if ~isfield(param,'nFrame')       || isempty(param.nFrame);       param.nFrame       = volTs.nframes; end
+if ~isfield(param,'nFrameOrig')   || isempty(param.nFrameOrig);   param.nFrameOrig   = volTs.nframes; end
+if ~isfield(param,'trDecon')      || isempty(param.trDecon);      param.trDecon      = volTs.tr/1000; end
+if ~isfield(param,'fracDecon')    || isempty(param.fracDecon);    param.fracDecon    = []         ; end % fraction of the maximum possible deconvolution window (minimum ISI) as a real number between 0 and 1. If 0 or empty, the full window is used (equivalent to 1)
+if ~isfield(param,'nDummyIgnore') || isempty(param.nDummyIgnore); param.nDummyIgnore = 0            ; end
 if any((param.nFrameOrig-param.nFrame).*param.tr > param.dsgn.onsetList(1))
     disp('!!!!!!!!!!!!!!!!!!!!!')
     disp('WARNING: too many dummy removed->timeseries begins after first event')
@@ -51,6 +57,14 @@ if any((param.nFrameOrig-param.nFrame).*param.tr > param.dsgn.onsetList(1))
     param.dsgn.cond(1)      = [];
     % dbstack; error('too many dummy removed->timeseries begins after first event');
 end
+if ~(param.nFrameOrig - param.nFrame + param.nDummyIgnore)
+    disp('!!!!!!!!!!!!!!!!!!!!!')
+    disp('WARNING: no dummy removed from input file and nDummyIgnore=0')
+    disp('WARNING: analysis possibly include non-steady state frames')
+    disp('WARNING: this is not recommended, but moving on')
+    disp('!!!!!!!!!!!!!!!!!!!!!')
+    % dbstack; error('no dummy removed or ignored->timeseries begins at first event');
+end
 
 %% Assert censor files
 if isfield(param,'fCnsrList')
@@ -59,7 +73,7 @@ if isfield(param,'fCnsrList')
         dbstack; error('number of runs in fVolTs and fCnsrList do not match');
     end
 else
-    fCnsrList = cell(size(fVolTs,1),1);
+    fCnsrList = repmat({''},size(fVolTs));
 end
 
 
@@ -79,28 +93,6 @@ end
 if R>1
     fRespCat      = runAfni(fVolTs,     [0 R],param,fMask,fCnsrList,force,verbose); % analysis performed on each echoe within that function
 end
-
-
-
-
-% %% Rerun special case
-% if any(diff(param.nFrame))
-%     forceThis = 1;
-%     switch fVolTs(1).fOrigList{1}
-%         case '/local/users/sebp/martinos/vsmDriven/doIt_generalPreproc/vsmDriven/bids/sub-vsmDrivenP5/ses-1/func/sub-vsmDrivenP5_ses-1_task-10sPrd1sDur_acq-vfMRIinflow_run-1_angio.nii.gz'
-%             rBad = 3;
-%             rRef = 1;
-%             % Extract parameters to fix
-%             cmd = strsplit(fRespRun(rRef,:).cmd,newline)';
-%             cmd = strsplit(cmd{contains(cmd,'TENTzero(')});
-%             passDown{end+1}.pr = cmd{contains(cmd,'TENTzero(')};
-%             passDown{end  }.id = 'TENTzeroParam';
-%             % Rerun, passing down the fixed parameters
-%             fRespRun(rBad,:) = runAfni(fVolTs(rBad,:),[rBad R],param,fMask,forceThis,verbose,passDown); % analysis performed on each echoe within that function
-%         otherwise
-%             error('need to define parameters for this special case')
-%     end
-% end
 
 
 %% Run afni's 3dDeconvolve for double-gamma response amplitude (and delay)
@@ -392,11 +384,11 @@ function fRes = runAfni(fList,rR,param,fMask,fCnsr,force,verbose,passDown)
         startSeq = param.funDsgn.startSeq;
         HRmodel = param.model;
     end
-    if isfield(param,'nDummy') && ~isempty(param.nDummy)
-        dbstack; error('old convention, double-check'); %param.nDummyIgnore = param.nDummy;
-    else
-        param.nDummyIgnore = 0;
-    end
+    % if isfield(param,'nDummy') && ~isempty(param.nDummy)
+    %     dbstack; error('old convention, double-check'); %param.nDummyIgnore = param.nDummy;
+    % else
+    %     param.nDummyIgnore = 0;
+    % end
 
 
     sz = size(fList,[1 2 3]);
@@ -415,11 +407,16 @@ function fRes = runAfni(fList,rR,param,fMask,fCnsr,force,verbose,passDown)
         disp('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
         disp('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
         % if length(unique(fMask))>1; dbstack; error('multiple masks not supported'); end
-        fMask = fMask{1};
     end
-    mriMask = MRIread(char(fMask));
-    mriMask.vol([1:5 end-4:end],:              ) = 0;
-    mriMask.vol(:              ,[1:5 end-4:end]) = 0;
+    fMask = fMask{1};
+    % crop out edges of the mask to avoid edge effects
+    if isempty(fMask)
+        mriMask = [];
+    else
+        mriMask = MRIread(char(fMask));
+        mriMask.vol([1:5 end-4:end],:              ) = 0;
+        mriMask.vol(:              ,[1:5 end-4:end]) = 0;
+    end
 
 
 
@@ -456,9 +453,11 @@ function fRes = runAfni(fList,rR,param,fMask,fCnsr,force,verbose,passDown)
         else
             fResid = '';
         end
-        fMask  = fullfile(fileparts(replace(replace(fOut(:,:,1),'part-real','part-realImag'),'.nii.gz','')),['task-' param.dsgn.task '_cond-FULL_model-' HRmodel '_mask.nii.gz' ]);
-        if ~exist(fileparts(char(fMask)),'dir'); mkdir(fileparts(char(fMask))); end
-        mriMask.fspec = fMask; MRIwrite(mriMask,char(fMask));
+        if ~isempty(mriMask)
+            fMask  = fullfile(fileparts(replace(replace(fOut(:,:,1),'part-real','part-realImag'),'.nii.gz','')),['task-' param.dsgn.task '_cond-FULL_model-' HRmodel '_mask.nii.gz' ]);
+            if ~exist(fileparts(char(fMask)),'dir'); mkdir(fileparts(char(fMask))); end
+            mriMask.fspec = fMask; MRIwrite(mriMask,char(fMask));
+        end
         switch HRmodel
             case {'TENT' 'TENTzero'}
                 if param.PCflag
@@ -592,6 +591,10 @@ function fRes = runAfni(fList,rR,param,fMask,fCnsr,force,verbose,passDown)
 
 
 
+
+
+
+
 function [cmd,nReg] = afniCmd(fIn,fStim,fMask,fCnsr,param,fResp,fRespStd,fFit,fResid,fMat,fStat,verbose,dryRun)
     % function [cmd,nReg] = afniCmd2(fIn,fMask,fStim,nDummyIgnore,tr,startSeq,durSeq,condSeq,HRmodel,label,param,fResp,fFit,fResid,fMat,fStat,verbose,nDummyRemoved,trDecon,dryRun,nFrame)
     % param.nDummyRemoved [int]: number of initial frames that are already removed from the
@@ -605,13 +608,14 @@ function [cmd,nReg] = afniCmd(fIn,fStim,fMask,fCnsr,param,fResp,fRespStd,fFit,fR
     tr      = mean(param.tr);
     nFrame  = max(param.nFrame);
     trDecon = param.trDecon;
-    nDummyRemoved = param.nFrameOrig - param.nFrame;
+    nDummyRemoved  = param.nFrameOrig - param.nFrame;
+    nDummyToIgnore = param.nDummyIgnore;
     if any(diff(nDummyRemoved)>1); dbstack; error('nDummyRemoved should be the same across runs'); end
-    nDummy = mode(param.nDummyIgnore + nDummyRemoved);
+    nDummyTotal = mode(nDummyToIgnore + nDummyRemoved);
     fIn = cellstr(fIn);
     cmd = {'3dDeconvolve -overwrite \'};
     if ~dryRun
-        cmd{end+1} = ['-input ' sprintf(['%s[' num2str(param.nDummyIgnore) '..$] '],fIn{:}) ' \'];
+        cmd{end+1} = ['-input ' sprintf(['%s[' num2str(nDummyToIgnore) '..$] '],fIn{:}) ' \'];
         if ~isempty(fMask)
             cmd{end+1} = ['-mask ' char(fMask) ' \'];
         end
@@ -619,8 +623,9 @@ function [cmd,nReg] = afniCmd(fIn,fStim,fMask,fCnsr,param,fResp,fRespStd,fFit,fR
         %%% Censored time points
         cnsr = cell(size(fIn,1),1);
         for i = 1:size(fIn,1)
+            if isempty(fCnsr{i}); continue; end
             cnsr{i} = readmatrix(fCnsr{i});
-            cnsr{i} = cnsr{i}(param.nDummyIgnore+1:end,2);
+            cnsr{i} = cnsr{i}(nDummyToIgnore+1:end,2);
         end
         sz = size(fIn);
         cnsr = repmat(cnsr,sz);
@@ -644,7 +649,7 @@ function [cmd,nReg] = afniCmd(fIn,fStim,fMask,fCnsr,param,fResp,fRespStd,fFit,fR
     else
         cmd{end+1} = '-polort A \';
     end
-    cmd{end+1} = ['-local_times -stim_times_subtract ' num2str(mean(tr.*nDummy),'%f') ' \'];
+    cmd{end+1} = ['-local_times -stim_times_subtract ' num2str(mean(tr.*nDummyTotal),'%f') ' \'];
     
     % Set design
     dsgn = param.dsgn;
@@ -795,8 +800,9 @@ function [cmd,nReg] = setAfniStimFileAndCmd(k,kList,dsgn,fIn,fStim,param,dryRun,
                 eTimeNext = dsgn.onsetList(eTimeNext);
             end
             deconWin = min(eTimeNext - eTime);
-            if isfield(param,'durDecon') && ~isempty(param.durDecon)
-                deconWin = deconWin.*param.durDecon;
+            if isfield(param,'fracDecon') && ~isempty(param.fracDecon) && param.fracDecon~=0
+                if param.fracDecon<param.trDecon/deconWin || param.fracDecon<param.tr/deconWin; dbstack; error('fracDecon (the fraction of the maximum possible deconWin) too small'); end
+                deconWin = deconWin.*param.fracDecon;
             end
             % deconWin = deconWin - 3*tr; % ensure at least one acquisition tr (not trDecon) of baseline between each stimulus
             if (deconWin/param.trDecon)/ceil(deconWin/param.trDecon)>0.9
