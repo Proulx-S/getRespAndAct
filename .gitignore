@@ -45,6 +45,7 @@ externalTools/*
 *.BRIK
 *.HEAD
 *.REML_cmd
+*.err
 
 
 # Others
